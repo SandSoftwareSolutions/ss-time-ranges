@@ -1,0 +1,44 @@
+{
+  "name": "@sandsoftwaresolutions/time-ranges",
+  "version": "0.1.0",
+  "description": "Ranges of time: overlap, merge, subtract, free gaps, who is there at once, shifts over midnight and night minutes.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "time",
+    "ranges",
+    "shift",
+    "roster",
+    "intervals"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SandSoftwareSolutions/ss-time-ranges.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SandSoftwareSolutions/ss-time-ranges/issues"
+  },
+  "homepage": "https://github.com/SandSoftwareSolutions/ss-time-ranges#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}
