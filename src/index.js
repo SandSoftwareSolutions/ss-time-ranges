@@ -41,6 +41,7 @@ export function contains(range, inner) {
     return i.start >= r.start && i.end <= r.end;
   }
   const point = num(inner);
+  if (typeof point !== "number") throw new TypeError("time-ranges: inner must be a number, a Date or a range"); // "5" >= 5 would be true by coercion
   return point >= r.start && point < r.end;
 }
 
@@ -129,14 +130,66 @@ export function concurrency(ranges) {
 
 export const peak = (ranges) => concurrency(ranges).reduce((max, s) => Math.max(max, s.count), 0);
 
-/** Splits a range of Dates at midnight in UTC (default), or at midnight of a fixed offset in minutes (`offsetMinutes: 120` for UTC+2). Each piece has the `day` ("YYYY-MM-DD") it belongs to. */
-export function splitByDay(range, { offsetMinutes = 0 } = {}) {
+const MAX_PIECES = 100_000; // a range of a few centuries is fine; a range of 10^15 ms cut per day or per minute-day would never finish
+
+const zoneFormats = new Map();
+function localParts(timeZone, t) {
+  let format = zoneFormats.get(timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-CA", { timeZone, calendar: "iso8601", numberingSystem: "latn", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    zoneFormats.set(timeZone, format);
+  }
+  return Object.fromEntries(format.formatToParts(new Date(t)).map((p) => [p.type, p.value]));
+}
+// "2026-03-29" for an instant, as the calendar day it is in that time zone.
+function dayInZone(timeZone, t) {
+  const p = localParts(timeZone, t);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+// The first instant after `t` at which the calendar day in the time zone is another one (local midnight), found by bisection.
+function nextLocalMidnight(timeZone, t, limit) {
+  const p = localParts(timeZone, t);
+  const day = `${p.year}-${p.month}-${p.day}`;
+  // quick guess for an ordinary 24-hour day; the bisection below is for the days with a clock change
+  const guess = t - (((Number(p.hour) * 60 + Number(p.minute)) * 60 + Number(p.second)) * 1000 + (((t % 1000) + 1000) % 1000)) + 86_400_000;
+  if (guess > t && dayInZone(timeZone, guess) !== day && dayInZone(timeZone, guess - 1) === day) return Math.min(guess, limit);
+  let hi = Math.min(t + 50 * 3_600_000, limit);
+  if (dayInZone(timeZone, hi) === day) return limit;
+  let lo = t;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (dayInZone(timeZone, mid) === day) lo = mid;
+    else hi = mid;
+  }
+  return hi;
+}
+
+/**
+ * Splits a range of Dates at midnight in UTC (default), at midnight of a fixed offset in minutes (`offsetMinutes: 120` for UTC+2), or
+ * at local midnight in an IANA time zone (`timeZone: "Europe/Amsterdam"`), where a day can be 23 or 25 hours long on the days the
+ * clock changes. Each piece has the `day` ("YYYY-MM-DD") it belongs to.
+ */
+export function splitByDay(range, { offsetMinutes, timeZone } = {}) {
   const r = check(range);
-  const offset = offsetMinutes * 60_000;
+  if (offsetMinutes !== undefined && timeZone !== undefined) throw new TypeError("time-ranges: use offsetMinutes or timeZone, not both");
   const wrap = like(range);
   const out = [];
   let start = r.start;
+  if (timeZone !== undefined) {
+    if (typeof timeZone !== "string") throw new TypeError("time-ranges: timeZone must be an IANA name such as \"Europe/Amsterdam\"");
+    while (start < r.end) {
+      if (out.length >= MAX_PIECES) throw new RangeError("time-ranges: the range covers too many days");
+      const end = nextLocalMidnight(timeZone, start, r.end);
+      out.push({ ...make(start, end, wrap), day: dayInZone(timeZone, start) });
+      start = end;
+    }
+    return out;
+  }
+  const offset = (offsetMinutes ?? 0) * 60_000;
+  if (!Number.isFinite(offset)) throw new TypeError("time-ranges: offsetMinutes must be a number");
   while (start < r.end) {
+    if (out.length >= MAX_PIECES) throw new RangeError("time-ranges: the range covers too many days");
     const dayStart = Math.floor((start + offset) / 86_400_000) * 86_400_000 - offset;
     const end = Math.min(r.end, dayStart + 86_400_000);
     out.push({ ...make(start, end, wrap), day: new Date(start + offset).toISOString().slice(0, 10) });
@@ -179,6 +232,7 @@ export function byDay(range) {
   const r = check(range);
   const out = [];
   for (let start = r.start; start < r.end; ) {
+    if (out.length >= MAX_PIECES) throw new RangeError("time-ranges: the range covers too many days");
     const day = Math.floor(start / 1440);
     const end = Math.min(r.end, (day + 1) * 1440);
     out.push({ day, start: start - day * 1440, end: end - day * 1440 });

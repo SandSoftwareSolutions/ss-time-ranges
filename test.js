@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 
 import { byDay, concurrency, contains, formatClock, gaps, intersect, length, merge, minutesIn, overlaps, parseClock, peak, shift, splitAt, splitByDay, subtract, totalLength } from "./src/index.js";
@@ -124,4 +125,61 @@ test("bad ranges are refused", () => {
   assert.throws(() => overlaps({ start: "a", end: 2 }, r(1, 2)), TypeError);
   assert.throws(() => merge([null]), TypeError);
   assert.throws(() => merge([r(1, 2)], { gap: -1 }), RangeError);
+});
+
+test("splitByDay with a time zone: days of 23 and 25 hours around the Amsterdam clock changes", () => {
+  const hours = (pieces) => pieces.map((p) => [p.day, (p.end - p.start) / 3_600_000]);
+  const spring = splitByDay({ start: new Date("2026-03-28T00:00:00+01:00"), end: new Date("2026-03-31T00:00:00+02:00") }, { timeZone: "Europe/Amsterdam" });
+  assert.deepEqual(hours(spring), [["2026-03-28", 24], ["2026-03-29", 23], ["2026-03-30", 24]]);
+  assert.equal(spring[1].start.toISOString(), "2026-03-28T23:00:00.000Z");
+  const autumn = splitByDay({ start: new Date("2026-10-24T12:00:00+02:00"), end: new Date("2026-10-27T00:00:00+01:00") }, { timeZone: "Europe/Amsterdam" });
+  assert.deepEqual(hours(autumn), [["2026-10-24", 12], ["2026-10-25", 25], ["2026-10-26", 24]]);
+  // the pieces are contiguous and cover the range exactly
+  assert.equal(autumn[0].start.toISOString(), "2026-10-24T10:00:00.000Z");
+  autumn.forEach((p, i) => i > 0 && assert.equal(p.start.getTime(), autumn[i - 1].end.getTime()));
+  assert.equal(autumn.at(-1).end.toISOString(), "2026-10-26T23:00:00.000Z");
+  // other zones, including half-hour offsets and the day Samoa skipped (2011-12-30)
+  assert.deepEqual(hours(splitByDay({ start: new Date("2011-12-28T00:00:00Z"), end: new Date("2012-01-02T00:00:00Z") }, { timeZone: "Pacific/Apia" })).map(([d]) => d), ["2011-12-27", "2011-12-28", "2011-12-29", "2011-12-31", "2012-01-01", "2012-01-02"]);
+  assert.deepEqual(hours(splitByDay({ start: new Date("2026-01-01T00:00:00Z"), end: new Date("2026-01-02T00:00:00Z") }, { timeZone: "Asia/Kolkata" })), [["2026-01-01", 18.5], ["2026-01-02", 5.5]]);
+  assert.throws(() => splitByDay({ start: new Date(0), end: new Date(1e11) }, { timeZone: "Mars/Base" }), RangeError);
+  assert.throws(() => splitByDay({ start: new Date(0), end: new Date(1e11) }, { timeZone: "UTC", offsetMinutes: 60 }), TypeError);
+});
+
+test("a range that would need millions of day pieces is refused", () => {
+  assert.throws(() => splitByDay({ start: new Date(0), end: new Date(8.64e15) }), RangeError);
+  assert.throws(() => byDay({ start: 0, end: 1e12 }), RangeError);
+});
+
+test("contains refuses a text or null as the point (\"5\" >= 5 is true by coercion)", () => {
+  for (const bad of ["5", "x", null, undefined]) assert.throws(() => contains({ start: 0, end: 10 }, bad), TypeError);
+  assert.equal(contains({ start: 0, end: 10 }, 5), true);
+});
+
+test("random sets of ranges agree with a minute-by-minute grid (merge, subtract, gaps, concurrency, totalLength, minutesIn)", () => {
+  const pick = (n) => randomBytes(1)[0] % n;
+  const range = () => { const start = pick(50); return { start, end: start + pick(15) }; };
+  const grid = (list) => { const g = new Array(80).fill(0); for (const r of list) for (let i = r.start; i < r.end; i++) g[i]++; return g; };
+  for (let i = 0; i < 300; i++) {
+    const A = Array.from({ length: pick(6) }, range);
+    const B = Array.from({ length: pick(5) }, range);
+    const gA = grid(A);
+    const gB = grid(B);
+    assert.deepEqual(grid(merge(A)), gA.map((v) => (v > 0 ? 1 : 0)));
+    assert.deepEqual(grid(subtract(A, B)), gA.map((v, k) => (v > 0 && !(gB[k] > 0) ? 1 : 0)));
+    assert.deepEqual(grid(gaps(A, { start: 0, end: 70 })), gA.map((v, k) => (k < 70 && !(v > 0) ? 1 : 0)));
+    assert.equal(totalLength(A), gA.filter((v) => v > 0).length);
+    assert.equal(peak(A), Math.max(0, ...gA));
+    const g = new Array(80).fill(0);
+    for (const s of concurrency(A)) for (let k = s.start; k < s.end; k++) g[k] = s.count;
+    assert.deepEqual(g, gA);
+    const from = pick(2880);
+    const length = 1 + pick(2880);
+    const ws = pick(1440);
+    const we = pick(1440);
+    const clock = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    let brute = 0;
+    const windowLength = (we <= ws ? we + 1440 : we) - ws;
+    for (let minute = from; minute < from + length; minute++) if ((((minute % 1440) - ws) % 1440 + 1440) % 1440 < windowLength) brute++;
+    assert.equal(minutesIn({ start: from, end: from + length }, clock(ws), clock(we)), brute);
+  }
 });

@@ -36,9 +36,9 @@ formatClock(1500);                            // "01:00"
 
 - **Half-open ranges.** `start` is in, `end` is out. 09:00-12:00 and 12:00-15:00 touch but do not overlap, and a range of length zero is empty. This is what makes sums come out right: two back-to-back shifts add up, and a break at 12:00-13:00 leaves exactly 9-12 and 13-17.
 - **Dates in, Dates out.** Give Dates and you get Dates back (lengths are in milliseconds); give numbers and you get numbers.
-- `splitByDay(range, { offsetMinutes })` cuts a Date range at midnight in UTC, or at the midnight of a fixed offset such as `120` for UTC+2, and labels each piece with its day.
+- `splitByDay(range, { offsetMinutes | timeZone })` cuts a Date range at midnight in UTC, at the midnight of a fixed offset such as `120` for UTC+2, or at local midnight in an IANA zone: with `timeZone: "Europe/Amsterdam"` the pieces on 29 March 2026 and 25 October 2026 are 23 and 25 hours long. Each piece is labelled with its day. `splitByDay` and `byDay` throw a `RangeError` for a range of more than 100 000 days.
 - Clock times are `"HH:MM"`; `"24:00"` is allowed as an end. A shift whose end is not after its start runs to the next day; the same start and end means 24 hours.
 - `totalLength` counts overlapping time once. `splitAt`, `intersect`, `contains`, `length` are there too.
 - Wrong input (an end before the start, text instead of numbers) throws a clear error and is never "fixed" silently.
 
-Time zones and daylight saving are not guessed: for local midnight on days with a clock change, work with Dates and cut them at the real instants.
+The clock-time helpers (`shift`, `byDay`, `minutesIn`, `parseClock`) count minutes on a 1440-minute day and know nothing about clock changes: a night shift 22:00-06:00 is 480 minutes, also on the night the clock changes (when it really lasts 7 or 9 hours). For real durations on those nights, work with Dates and cut them with `splitByDay(range, { timeZone })`.

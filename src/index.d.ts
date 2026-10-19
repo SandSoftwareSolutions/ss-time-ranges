@@ -16,7 +16,7 @@ export function totalLength(ranges: readonly Any[]): number;
 export function splitAt<T extends Any>(range: T, points: readonly (number | Date)[]): T[];
 export function concurrency<T extends Any>(ranges: readonly T[]): (T & { count: number })[];
 export function peak(ranges: readonly Any[]): number;
-export function splitByDay(range: Range<Date>, options?: { offsetMinutes?: number }): (Range<Date> & { day: string })[];
+export function splitByDay(range: Range<Date>, options?: { offsetMinutes?: number; /** IANA name such as "Europe/Amsterdam"; cannot be combined with offsetMinutes. */ timeZone?: string }): (Range<Date> & { day: string })[];
 
 export function parseClock(text: string): number;
 export function formatClock(minutes: number): string;
