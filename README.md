@@ -10,6 +10,8 @@ Work with blocks of time: do two shifts overlap, who is working at the same time
 npm install @sandsoftwaresolutions/time-ranges
 ```
 
+Works with `import` and `require()`, and ships TypeScript types for both.
+
 ## Usage
 
 ```js
